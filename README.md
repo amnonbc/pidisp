@@ -1,5 +1,7 @@
 # pidisp
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/amnonbc/pidisp.svg)](https://pkg.go.dev/github.com/amnonbc/pidisp)
+
 A Go module for opening a display on a Raspberry Pi and blitting `image.RGBA` frames onto it.
 
 No CGO, no libdrm, no X11 — just raw Linux ioctls and mmap.
