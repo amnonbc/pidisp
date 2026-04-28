@@ -81,3 +81,6 @@ Other Go framebuffer libraries exist, but pidisp fills a specific niche:
 
 - [`drm`](./drm) — DRM/KMS backend; ABGR8888 + hardware rotation for maximum performance
 - [`fb`](./fb) — fbdev fallback; supports 16 bpp (RGB565 with Bayer dithering) and 32 bpp
+
+## Alternatives
+- https://github.com/gonutz/framebuffer - cgo based library, without DRM acceleration.
