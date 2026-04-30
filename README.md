@@ -84,3 +84,4 @@ Other Go framebuffer libraries exist, but pidisp fills a specific niche:
 
 ## Alternatives
 - https://github.com/gonutz/framebuffer - cgo based library, without DRM acceleration.
+- https://github.com/gogpu/gg - enterprise grade 2D graphics library for Go.
