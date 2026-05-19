@@ -71,38 +71,38 @@ func drmIoW[T any](nr uintptr) uintptr {
 
 // drmModeRes mirrors struct drm_mode_card_res.
 type drmModeRes struct {
-	FbIDPtr        uint64
-	CrtcIDPtr      uint64
-	ConnectorIDPtr uint64
-	EncoderIDPtr   uint64
-	CountFbs       uint32
-	CountCrtcs     uint32
+	FbIDPtr         uint64
+	CrtcIDPtr       uint64
+	ConnectorIDPtr  uint64
+	EncoderIDPtr    uint64
+	CountFbs        uint32
+	CountCrtcs      uint32
 	CountConnectors uint32
-	CountEncoders  uint32
-	MinWidth       uint32
-	MaxWidth       uint32
-	MinHeight      uint32
-	MaxHeight      uint32
+	CountEncoders   uint32
+	MinWidth        uint32
+	MaxWidth        uint32
+	MinHeight       uint32
+	MaxHeight       uint32
 }
 
 // drmModeGetConnector mirrors struct drm_mode_get_connector.
 type drmModeGetConnector struct {
-	EncodersPtr    uint64
-	ModesPtr       uint64
-	PropsPtr       uint64
-	PropValuesPtr  uint64
-	CountModes     uint32
-	CountProps     uint32
-	CountEncoders  uint32
-	EncoderID      uint32
-	ConnectorID    uint32
-	ConnectorType  uint32
+	EncodersPtr     uint64
+	ModesPtr        uint64
+	PropsPtr        uint64
+	PropValuesPtr   uint64
+	CountModes      uint32
+	CountProps      uint32
+	CountEncoders   uint32
+	EncoderID       uint32
+	ConnectorID     uint32
+	ConnectorType   uint32
 	ConnectorTypeID uint32
-	Connection     uint32
-	MmWidth        uint32
-	MmHeight       uint32
-	Subpixel       uint32
-	Pad            uint32
+	Connection      uint32
+	MmWidth         uint32
+	MmHeight        uint32
+	Subpixel        uint32
+	Pad             uint32
 }
 
 // drmModeModeInfo mirrors struct drm_mode_modeinfo.
@@ -202,13 +202,13 @@ type drmModeGetPlaneRes struct {
 
 // drmModeGetPlane mirrors struct drm_mode_get_plane.
 type drmModeGetPlane struct {
-	PlaneID        uint32
-	CrtcID         uint32
-	FbID           uint32
-	PossibleCrtcs  uint32
-	GammaSize      uint32
+	PlaneID          uint32
+	CrtcID           uint32
+	FbID             uint32
+	PossibleCrtcs    uint32
+	GammaSize        uint32
 	CountFormatTypes uint32
-	FormatTypePtr  uint64
+	FormatTypePtr    uint64
 }
 
 // drmModeObjSetProperty mirrors struct drm_mode_obj_set_property.
@@ -233,12 +233,12 @@ type drmModeObjGetProperties struct {
 // drmModeGetProperty mirrors struct drm_mode_get_property.
 // Name is a fixed 32-byte field (DRM_PROP_NAME_LEN).
 type drmModeGetProperty struct {
-	ValuesPtr     uint64
-	EnumBlobPtr   uint64
-	PropID        uint32
-	Flags         uint32
-	Name          [32]byte
-	CountValues   uint32
+	ValuesPtr      uint64
+	EnumBlobPtr    uint64
+	PropID         uint32
+	Flags          uint32
+	Name           [32]byte
+	CountValues    uint32
 	CountEnumBlobs uint32
 }
 
@@ -258,20 +258,20 @@ const (
 
 // ioctl request numbers, computed from struct sizes at init time.
 var (
-	ioctlSetClientCap        = drmIoW[drmSetClientCap](0x0D)
-	ioctlModeGetResources    = drmIoWR[drmModeRes](0xA0)
-	ioctlModeGetConnector    = drmIoWR[drmModeGetConnector](0xA7)
-	ioctlModeGetEncoder      = drmIoWR[drmModeGetEncoder](0xA6)
-	ioctlModeCreateDumb      = drmIoWR[drmModeCreateDumb](0xB2)
-	ioctlModeMapDumb         = drmIoWR[drmModeMapDumb](0xB3)
-	ioctlModeAddFB2          = drmIoWR[drmModeFBCmd2](0xB8)
-	ioctlModeSetCRTC         = drmIoWR[drmModeCrtc](0xA2)
-	ioctlModeDestroyDumb     = drmIoWR[drmModeDestroyDumb](0xB4)
-	ioctlModeGetPlaneRes     = drmIoWR[drmModeGetPlaneRes](0xB5)
-	ioctlModeGetPlane        = drmIoWR[drmModeGetPlane](0xB6)
+	ioctlSetClientCap         = drmIoW[drmSetClientCap](0x0D)
+	ioctlModeGetResources     = drmIoWR[drmModeRes](0xA0)
+	ioctlModeGetConnector     = drmIoWR[drmModeGetConnector](0xA7)
+	ioctlModeGetEncoder       = drmIoWR[drmModeGetEncoder](0xA6)
+	ioctlModeCreateDumb       = drmIoWR[drmModeCreateDumb](0xB2)
+	ioctlModeMapDumb          = drmIoWR[drmModeMapDumb](0xB3)
+	ioctlModeAddFB2           = drmIoWR[drmModeFBCmd2](0xB8)
+	ioctlModeSetCRTC          = drmIoWR[drmModeCrtc](0xA2)
+	ioctlModeDestroyDumb      = drmIoWR[drmModeDestroyDumb](0xB4)
+	ioctlModeGetPlaneRes      = drmIoWR[drmModeGetPlaneRes](0xB5)
+	ioctlModeGetPlane         = drmIoWR[drmModeGetPlane](0xB6)
 	ioctlModeObjGetProperties = drmIoWR[drmModeObjGetProperties](0xB9)
-	ioctlModeObjSetProperty  = drmIoWR[drmModeObjSetProperty](0xBA)
-	ioctlModeGetProperty     = drmIoWR[drmModeGetProperty](0xAA)
+	ioctlModeObjSetProperty   = drmIoWR[drmModeObjSetProperty](0xBA)
+	ioctlModeGetProperty      = drmIoWR[drmModeGetProperty](0xAA)
 )
 
 func drmIoctl[T any](fd uintptr, req uintptr, arg *T) error {
@@ -513,6 +513,13 @@ func Open(dev string, rotate bool) (*Device, error) {
 	}
 	fd := f.Fd()
 
+	cleanup := func(buffers *[2]drmBuffer) {
+		for i := range 2 {
+			buffers[i].Close(fd)
+		}
+		f.Close()
+	}
+
 	// Enable universal planes so that setPlaneRotation can enumerate the
 	// primary plane. Without this, only overlay planes are visible and
 	// rotation would be applied to the wrong plane.
@@ -634,10 +641,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 		fb.Pitches[0] = dumb.Pitch
 		err = drmIoctl(fd, ioctlModeAddFB2, &fb)
 		if err != nil {
-			for j := 0; j <= i; j++ {
-				buffers[j].Close(fd)
-			}
-			f.Close()
+			cleanup(&buffers)
 			return nil, fmt.Errorf("DRM_IOCTL_MODE_ADDFB2 buffer %d: %w", i, err)
 		}
 		buffers[i].fbID = fb.FbID
@@ -647,10 +651,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 		mapDumb.Handle = dumb.Handle
 		err = drmIoctl(fd, ioctlModeMapDumb, &mapDumb)
 		if err != nil {
-			for j := 0; j <= i; j++ {
-				buffers[j].Close(fd)
-			}
-			f.Close()
+			cleanup(&buffers)
 			return nil, fmt.Errorf("DRM_IOCTL_MODE_MAP_DUMB buffer %d: %w", i, err)
 		}
 
@@ -662,10 +663,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 			syscall.MAP_SHARED,
 		)
 		if err != nil {
-			for j := 0; j <= i; j++ {
-				buffers[j].Close(fd)
-			}
-			f.Close()
+			cleanup(&buffers)
 			return nil, fmt.Errorf("mmap dumb buffer %d: %w", i, err)
 		}
 		buffers[i].data = mapped
@@ -688,10 +686,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 	}
 	err = drmIoctl(fd, ioctlModeSetCRTC, &crtc)
 	if err != nil {
-		for i := range 2 {
-			buffers[i].Close(fd)
-		}
-		f.Close()
+		cleanup(&buffers)
 		return nil, fmt.Errorf("DRM_IOCTL_MODE_SETCRTC: %w", err)
 	}
 
