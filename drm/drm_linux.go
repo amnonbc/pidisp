@@ -282,15 +282,37 @@ func drmIoctl[T any](fd uintptr, req uintptr, arg *T) error {
 	return nil
 }
 
+// drmBuffer represents a DRM dumb buffer with its associated framebuffer.
+type drmBuffer struct {
+	handle uint32
+	fbID   uint32
+	data   []byte
+	buf    *image.RGBA
+}
+
+// Close unmaps and destroys the dumb buffer.
+func (b *drmBuffer) Close(fd uintptr) {
+	if b.data != nil {
+		syscall.Munmap(b.data)
+	}
+	if b.handle != 0 {
+		destroy := drmModeDestroyDumb{Handle: b.handle}
+		drmIoctl(fd, ioctlModeDestroyDumb, &destroy)
+	}
+}
+
 // Device represents an open DRM display device.
 type Device struct {
-	file   *os.File
-	fd     uintptr
-	width  int
-	height int
-	stride int
-	handle uint32
-	data   []byte
+	file    *os.File
+	fd      uintptr
+	width   int
+	height  int
+	stride  int
+	buffers [2]drmBuffer
+	active  int
+	crtcID  uint32
+	connID  uint32
+	mode    drmModeModeInfo
 }
 
 // Width returns the display width in pixels.
@@ -581,58 +603,84 @@ func Open(dev string, rotate bool) (*Device, error) {
 	width := int(mode.Hdisplay)
 	height := int(mode.Vdisplay)
 
-	// Create a 32 bpp dumb buffer. The kernel fills in Handle, Pitch, and Size.
-	var dumb drmModeCreateDumb
-	dumb.Width = uint32(width)
-	dumb.Height = uint32(height)
-	dumb.Bpp = 32
-	err = drmIoctl(fd, ioctlModeCreateDumb, &dumb)
-	if err != nil {
-		f.Close()
-		return nil, fmt.Errorf("DRM_IOCTL_MODE_CREATE_DUMB: %w", err)
+	// Create two 32 bpp dumb buffers for double buffering.
+	var buffers [2]drmBuffer
+	var stride uint32
+
+	for i := 0; i < 2; i++ {
+		var dumb drmModeCreateDumb
+		dumb.Width = uint32(width)
+		dumb.Height = uint32(height)
+		dumb.Bpp = 32
+		err = drmIoctl(fd, ioctlModeCreateDumb, &dumb)
+		if err != nil {
+			for j := 0; j < i; j++ {
+				buffers[j].Close(fd)
+			}
+			f.Close()
+			return nil, fmt.Errorf("DRM_IOCTL_MODE_CREATE_DUMB buffer %d: %w", i, err)
+		}
+		buffers[i].handle = dumb.Handle
+		if i == 0 {
+			stride = dumb.Pitch
+		}
+
+		// Register as a DRM framebuffer using ADDFB2 with explicit ABGR8888 fourcc.
+		var fb drmModeFBCmd2
+		fb.Width = uint32(width)
+		fb.Height = uint32(height)
+		fb.PixelFormat = drmFormatABGR8888
+		fb.Handles[0] = dumb.Handle
+		fb.Pitches[0] = dumb.Pitch
+		err = drmIoctl(fd, ioctlModeAddFB2, &fb)
+		if err != nil {
+			for j := 0; j <= i; j++ {
+				buffers[j].Close(fd)
+			}
+			f.Close()
+			return nil, fmt.Errorf("DRM_IOCTL_MODE_ADDFB2 buffer %d: %w", i, err)
+		}
+		buffers[i].fbID = fb.FbID
+
+		// Get the mmap offset for the dumb buffer.
+		var mapDumb drmModeMapDumb
+		mapDumb.Handle = dumb.Handle
+		err = drmIoctl(fd, ioctlModeMapDumb, &mapDumb)
+		if err != nil {
+			for j := 0; j <= i; j++ {
+				buffers[j].Close(fd)
+			}
+			f.Close()
+			return nil, fmt.Errorf("DRM_IOCTL_MODE_MAP_DUMB buffer %d: %w", i, err)
+		}
+
+		mapped, err := syscall.Mmap(
+			int(fd),
+			int64(mapDumb.Offset),
+			int(dumb.Size),
+			syscall.PROT_READ|syscall.PROT_WRITE,
+			syscall.MAP_SHARED,
+		)
+		if err != nil {
+			for j := 0; j <= i; j++ {
+				buffers[j].Close(fd)
+			}
+			f.Close()
+			return nil, fmt.Errorf("mmap dumb buffer %d: %w", i, err)
+		}
+		buffers[i].data = mapped
+
+		// Create image.RGBA view backed by the mmap'd hardware buffer.
+		rect := image.Rect(0, 0, width, height)
+		buffers[i].buf = &image.RGBA{Pix: mapped, Stride: int(stride), Rect: rect}
 	}
 
-	// Register it as a DRM framebuffer using ADDFB2 with explicit ABGR8888 fourcc.
-	// ABGR8888 matches Go's image.RGBA memory layout so no pixel conversion is needed.
-	var fb drmModeFBCmd2
-	fb.Width = uint32(width)
-	fb.Height = uint32(height)
-	fb.PixelFormat = drmFormatABGR8888
-	fb.Handles[0] = dumb.Handle
-	fb.Pitches[0] = dumb.Pitch
-	err = drmIoctl(fd, ioctlModeAddFB2, &fb)
-	if err != nil {
-		destroy := drmModeDestroyDumb{Handle: dumb.Handle}
-		drmIoctl(fd, ioctlModeDestroyDumb, &destroy)
-		f.Close()
-		return nil, fmt.Errorf("DRM_IOCTL_MODE_ADDFB2: %w", err)
-	}
+	setPlaneRotation(fd, crtcID, crtcIDs, rotate)
 
-	// Get the mmap offset for the dumb buffer.
-	var mapDumb drmModeMapDumb
-	mapDumb.Handle = dumb.Handle
-	err = drmIoctl(fd, ioctlModeMapDumb, &mapDumb)
-	if err != nil {
-		f.Close()
-		return nil, fmt.Errorf("DRM_IOCTL_MODE_MAP_DUMB: %w", err)
-	}
-
-	data, err := syscall.Mmap(
-		int(fd),
-		int64(mapDumb.Offset),
-		int(dumb.Size),
-		syscall.PROT_READ|syscall.PROT_WRITE,
-		syscall.MAP_SHARED,
-	)
-	if err != nil {
-		f.Close()
-		return nil, fmt.Errorf("mmap dumb buffer: %w", err)
-	}
-
-	// Point the CRTC at our new framebuffer.
+	// Point the CRTC at buffer 0.
 	crtc := drmModeCrtc{
 		CrtcID:           crtcID,
-		FbID:             fb.FbID,
+		FbID:             buffers[0].fbID,
 		ModeValid:        1,
 		Mode:             mode,
 		SetConnectorsPtr: uint64(uintptr(unsafe.Pointer(&connID))),
@@ -640,47 +688,74 @@ func Open(dev string, rotate bool) (*Device, error) {
 	}
 	err = drmIoctl(fd, ioctlModeSetCRTC, &crtc)
 	if err != nil {
-		syscall.Munmap(data)
+		for i := range 2 {
+			buffers[i].Close(fd)
+		}
 		f.Close()
 		return nil, fmt.Errorf("DRM_IOCTL_MODE_SETCRTC: %w", err)
 	}
 
-	setPlaneRotation(fd, crtcID, crtcIDs, rotate)
-
-	slog.Info("DRM display", "width", width, "height", height, "stride", dumb.Pitch, "crtc", crtcID)
+	slog.Info("DRM display", "width", width, "height", height, "stride", stride, "crtc", crtcID)
 	return &Device{
-		file:   f,
-		fd:     fd,
-		width:  width,
-		height: height,
-		stride: int(dumb.Pitch),
-		handle: dumb.Handle,
-		data:   data,
+		file:    f,
+		fd:      fd,
+		width:   width,
+		height:  height,
+		stride:  int(stride),
+		buffers: buffers,
+		active:  0,
+		crtcID:  crtcID,
+		connID:  connID,
+		mode:    mode,
 	}, nil
 }
 
-// Close unmaps the dumb buffer and releases the DRM device file.
+// Close unmaps the dumb buffers and releases the DRM device file.
 func (d *Device) Close() {
-	syscall.Munmap(d.data)
-	destroy := drmModeDestroyDumb{Handle: d.handle}
-	drmIoctl(d.fd, ioctlModeDestroyDumb, &destroy)
+	for i := range 2 {
+		d.buffers[i].Close(d.fd)
+	}
 	d.file.Close()
 }
 
-// Blit copies img to the DRM dumb buffer.
+// Blit copies img to the active DRM dumb buffer.
 //
 // ABGR8888 matches image.RGBA.Pix exactly, so no pixel conversion is needed.
 // When strides match the whole frame is a single copy. Rotation is handled
 // by the hardware via the plane "rotation" property set at Open time.
+// Deprecated: use BackBuffer and Flip for zero-copy rendering.
 func (d *Device) Blit(img *image.RGBA) {
 	if img.Stride == d.stride {
-		copy(d.data, img.Pix[:d.height*d.stride])
+		copy(d.buffers[d.active].data, img.Pix[:d.height*d.stride])
 		return
 	}
 	rowBytes := d.width * 4
 	for y := 0; y < d.height; y++ {
 		src := img.Pix[y*img.Stride : y*img.Stride+rowBytes]
-		dst := d.data[y*d.stride : y*d.stride+rowBytes]
+		dst := d.buffers[d.active].data[y*d.stride : y*d.stride+rowBytes]
 		copy(dst, src)
 	}
+}
+
+// BackBuffer returns the non-active buffer for rendering.
+func (d *Device) BackBuffer() *image.RGBA {
+	return d.buffers[1-d.active].buf
+}
+
+// Flip makes the back buffer active (displayed) and swaps the buffers.
+func (d *Device) Flip() {
+	next := 1 - d.active
+	crtc := drmModeCrtc{
+		CrtcID:           d.crtcID,
+		FbID:             d.buffers[next].fbID,
+		X:                0,
+		Y:                0,
+		GammaSize:        0,
+		ModeValid:        1,
+		Mode:             d.mode,
+		SetConnectorsPtr: uint64(uintptr(unsafe.Pointer(&d.connID))),
+		CountConnectors:  1,
+	}
+	drmIoctl(d.fd, ioctlModeSetCRTC, &crtc)
+	d.active = next
 }

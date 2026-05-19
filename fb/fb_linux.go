@@ -121,6 +121,7 @@ type Device struct {
 	rotate bool
 	vinfo  fbVarScreenInfo
 	data   []byte
+	back   *image.RGBA
 }
 
 // NewTestImage returns an RGBA image filled with a non-trivial pattern
@@ -241,6 +242,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 		rotate: rotate,
 		vinfo:  vinfo,
 		data:   data,
+		back:   image.NewRGBA(image.Rect(0, 0, width, height)),
 	}, nil
 }
 
@@ -249,9 +251,9 @@ func (fb *Device) Close() {
 	syscall.Munmap(fb.data)
 }
 
-// Blit copies img to the framebuffer, optionally rotating 180 degrees, and
+// blitToHardware copies img to the framebuffer, optionally rotating 180 degrees, and
 // converting from RGBA to the hardware pixel format described by the vinfo bitfields.
-func (fb *Device) Blit(img *image.RGBA) {
+func (fb *Device) blitToHardware(img *image.RGBA) {
 	rOff := fb.vinfo.Red.Offset
 	gOff := fb.vinfo.Green.Offset
 	bOff := fb.vinfo.Blue.Offset
@@ -318,4 +320,19 @@ func (fb *Device) Blit(img *image.RGBA) {
 			}
 		}
 	}
+}
+
+// BackBuffer returns the non-active buffer for rendering.
+func (fb *Device) BackBuffer() *image.RGBA {
+	return fb.back
+}
+
+// Flip copies the back buffer to the hardware framebuffer.
+func (fb *Device) Flip() {
+	fb.blitToHardware(fb.back)
+}
+
+// Blit copies img to the framebuffer. Deprecated: use BackBuffer and Flip instead.
+func (fb *Device) Blit(img *image.RGBA) {
+	fb.blitToHardware(img)
 }
