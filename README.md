@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/amnonbc/pidisp.svg)](https://pkg.go.dev/github.com/amnonbc/pidisp)
 
-A Go module for opening a display on a Raspberry Pi and blitting `image.RGBA` frames onto it.
+A Go module for opening a display on a Raspberry Pi and rendering `image.RGBA` frames with zero-copy double-buffering.
 
 No CGO, no libdrm, no X11 — just raw Linux ioctls and mmap.
 
@@ -17,6 +17,10 @@ No CGO, no libdrm, no X11 — just raw Linux ioctls and mmap.
 
 ## Usage
 
+### Zero-copy rendering (v1.1.0+)
+
+Render directly into hardware-mapped memory on DRM (no per-frame memcopy):
+
 ```go
 import "github.com/amnonbc/pidisp"
 
@@ -26,9 +30,24 @@ if err != nil {
 }
 defer d.Close()
 
+// Get the back buffer and render into it
+buf := d.BackBuffer()
+// draw into buf ...
+
+// Flip to display the rendered frame
+d.Flip()
+```
+
+On DRM, rendering is directly into hardware-mapped memory. On fbdev, `Flip()` copies the back buffer to the hardware framebuffer.
+
+### Legacy API (Blit)
+
+For backward compatibility, the old `Blit()` method is still available:
+
+```go
 img := image.NewRGBA(image.Rect(0, 0, d.Width(), d.Height()))
 // draw into img ...
-d.Blit(img)
+d.Blit(img)  // deprecated; use BackBuffer/Flip instead
 ```
 
 ## Cross-compilation
@@ -60,9 +79,10 @@ Other Go framebuffer libraries exist, but pidisp fills a specific niche:
 | Feature | pidisp | Others (gonutz/different55/etc) |
 |---|---|---|
 | DRM/KMS support | ✓ (with hardware rotation) | ✗ fbdev only |
+| Double-buffering | ✓ (zero-copy on DRM) | ✗ single buffer |
 | Auto-fallback | ✓ tries DRM, falls back to fbdev | ✗ single backend |
 | Hardware acceleration | ✓ ABGR8888 zero-copy, plane rotation | ✗ per-pixel software operations |
-| Performance (Pi 2) | 1.66 ms/frame | ~53 ms/frame |
+| Performance (Pi 2) | 1.66 ms/frame (DRM), ~53 ms/frame (fbdev) | ~53 ms/frame |
 | CGO-free | ✓ raw ioctls only | varies |
 | Modern Pi OS support | ✓ (DRM default) | ⚠️ (fbdev deprecated) |
 
