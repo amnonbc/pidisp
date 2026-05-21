@@ -441,6 +441,7 @@ func nullTermString(b []byte) string {
 // "rotation" property to DRM_MODE_ROTATE_180 or DRM_MODE_ROTATE_0.
 // crtcIDs is the ordered list from DRM_IOCTL_MODE_GETRESOURCES; the index
 // of crtcID in that list determines which bit to match in PossibleCrtcs.
+// If rotate is true but rotation cannot be set, logs a warning.
 func setPlaneRotation(fd uintptr, crtcID uint32, crtcIDs []uint32, rotate bool) {
 	crtcBit := uint32(0)
 	for i, id := range crtcIDs {
@@ -526,7 +527,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 	cap := drmSetClientCap{Capability: drmClientCapUniversalPlanes, Value: 1}
 	err = drmIoctl(fd, ioctlSetClientCap, &cap)
 	if err != nil {
-		f.Close()
+		cleanup(&buffers)
 		return nil, fmt.Errorf("DRM_CLIENT_CAP_UNIVERSAL_PLANES: %w", err)
 	}
 
@@ -534,11 +535,11 @@ func Open(dev string, rotate bool) (*Device, error) {
 	var res drmModeRes
 	err = drmIoctl(fd, ioctlModeGetResources, &res)
 	if err != nil {
-		f.Close()
+		cleanup(&buffers)
 		return nil, fmt.Errorf("DRM_IOCTL_MODE_GETRESOURCES: %w", err)
 	}
 	if res.CountConnectors == 0 {
-		f.Close()
+		cleanup(&buffers)
 		return nil, fmt.Errorf("no DRM connectors found")
 	}
 
@@ -554,7 +555,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 	res.EncoderIDPtr = 0
 	err = drmIoctl(fd, ioctlModeGetResources, &res)
 	if err != nil {
-		f.Close()
+		cleanup(&buffers)
 		return nil, fmt.Errorf("DRM_IOCTL_MODE_GETRESOURCES (ids): %w", err)
 	}
 
@@ -602,7 +603,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 	enc.EncoderID = encoderID
 	err = drmIoctl(fd, ioctlModeGetEncoder, &enc)
 	if err != nil {
-		f.Close()
+		cleanup(&buffers)
 		return nil, fmt.Errorf("DRM_IOCTL_MODE_GETENCODER: %w", err)
 	}
 	crtcID := enc.CrtcID
@@ -751,6 +752,9 @@ func (d *Device) Flip() {
 		SetConnectorsPtr: uint64(uintptr(unsafe.Pointer(&d.connID))),
 		CountConnectors:  1,
 	}
-	drmIoctl(d.fd, ioctlModeSetCRTC, &crtc)
+	if err := drmIoctl(d.fd, ioctlModeSetCRTC, &crtc); err != nil {
+		slog.Error("DRM flip failed; display not updated", "err", err)
+		return
+	}
 	d.active = next
 }

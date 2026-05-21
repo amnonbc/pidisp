@@ -219,11 +219,15 @@ func Open(dev string, rotate bool) (*Device, error) {
 		}
 	}
 
-	fbSize := stride * height
+	fbSize := int64(stride) * int64(height)
+	if fbSize <= 0 || fbSize > 256*1024*1024 {
+		f.Close()
+		return nil, fmt.Errorf("invalid framebuffer size: %d bytes (stride=%d, height=%d)", fbSize, stride, height)
+	}
 	data, err := syscall.Mmap(
 		int(f.Fd()),
 		0,
-		fbSize,
+		int(fbSize),
 		syscall.PROT_READ|syscall.PROT_WRITE,
 		syscall.MAP_SHARED,
 	)
@@ -282,6 +286,7 @@ func (fb *Device) blitToHardware(img *image.RGBA) {
 		}
 
 		// Cache the bayer row for this y — it is constant across the x loop.
+		// The 4×4 Bayer matrix repeats every 4 pixels, so y&3 selects which row.
 		bayerRow := bayer4x4[y&3]
 
 		// Pack the pixel into the hardware format. The vinfo bitfields
@@ -310,6 +315,7 @@ func (fb *Device) blitToHardware(img *image.RGBA) {
 				// steps of 8 (R/B) or 4 (G), producing a visible staircase.
 				// Adding a position-dependent threshold before the right-shift
 				// spreads the quantisation error across neighbouring pixels.
+				// x&3 selects the column in the 4-wide Bayer row for this pixel.
 				d := bayerRow[x&3]
 				r5 := uint16(clamp8(int(r)+int(d>>3))) >> 3
 				g6 := uint16(clamp8(int(g)+int(d>>2))) >> 2
@@ -329,10 +335,18 @@ func (fb *Device) BackBuffer() *image.RGBA {
 
 // Flip copies the back buffer to the hardware framebuffer.
 func (fb *Device) Flip() {
+	if fb.back.Bounds().Dx() != fb.width || fb.back.Bounds().Dy() != fb.height {
+		slog.Error("back buffer size mismatch; this should not happen", "got", fb.back.Bounds(), "want", image.Rect(0, 0, fb.width, fb.height))
+		return
+	}
 	fb.blitToHardware(fb.back)
 }
 
 // Blit copies img to the framebuffer. Deprecated: use BackBuffer and Flip instead.
 func (fb *Device) Blit(img *image.RGBA) {
+	if img.Bounds().Dx() != fb.width || img.Bounds().Dy() != fb.height {
+		slog.Error("Blit image size mismatch", "got", img.Bounds(), "want", image.Rect(0, 0, fb.width, fb.height))
+		return
+	}
 	fb.blitToHardware(img)
 }
