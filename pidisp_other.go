@@ -6,9 +6,10 @@ import "errors"
 
 // Options controls how the display is opened.
 type Options struct {
-	Rotate  bool
-	ForceFB bool
-	Debug   bool
+	Rotate    bool
+	ForceFB   bool
+	Debug     bool
+	AsyncFlip bool
 }
 
 // Open is not supported on non-Linux platforms.

@@ -1,0 +1,75 @@
+// This is a template for comparing pidisp with gonutz/framebuffer.
+//
+// To use this:
+// 1. Install gonutz: go get github.com/gonutz/framebuffer
+// 2. Rename this file to comparison_bench_test.go
+// 3. Run: go test -bench=Comparison -benchtime=10s
+
+package pidisp
+
+import (
+	"image"
+	"testing"
+
+	"github.com/gonutz/framebuffer"
+)
+
+// BenchmarkGonutzFramebuffer measures gonutz/framebuffer performance
+// for direct comparison with pidisp.
+func BenchmarkGonutzFramebuffer(b *testing.B) {
+	fb, err := framebuffer.Open("/dev/fb0")
+	if err != nil {
+		b.Skipf("gonutz framebuffer unavailable: %v", err)
+	}
+	defer fb.Close()
+
+	w, h := fb.Width(), fb.Height()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		fillBuffer(img, w, h, uint32(i%256))
+		fb.Draw(img)
+	}
+	b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N), "us/frame")
+}
+
+// BenchmarkComparison runs both pidisp (fbdev) and gonutz side-by-side
+// for direct comparison on the same hardware.
+func BenchmarkComparison(b *testing.B) {
+	b.Run("pidisp-fbdev", func(b *testing.B) {
+		d, err := Open(Options{ForceFB: true})
+		if err != nil {
+			b.Skipf("pidisp fbdev unavailable: %v", err)
+		}
+		defer d.Close()
+
+		w, h := d.Width(), d.Height()
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			buf := d.BackBuffer()
+			fillBuffer(buf, w, h, uint32(i%256))
+			d.Flip()
+		}
+		b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N), "us/frame")
+	})
+
+	b.Run("gonutz-framebuffer", func(b *testing.B) {
+		fb, err := framebuffer.Open("/dev/fb0")
+		if err != nil {
+			b.Skipf("gonutz framebuffer unavailable: %v", err)
+		}
+		defer fb.Close()
+
+		w, h := fb.Width(), fb.Height()
+		img := image.NewRGBA(image.Rect(0, 0, w, h))
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			fillBuffer(img, w, h, uint32(i%256))
+			fb.Draw(img)
+		}
+		b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N), "us/frame")
+	})
+}

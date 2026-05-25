@@ -328,8 +328,10 @@ func (fb *Device) BackBuffer() *image.RGBA {
 }
 
 // Flip copies the back buffer to the hardware framebuffer.
-func (fb *Device) Flip() {
+// Returns nil since fbdev operations don't fail.
+func (fb *Device) Flip() error {
 	fb.blitToHardware(fb.back)
+	return nil
 }
 
 // Blit copies img to the framebuffer. Deprecated: use BackBuffer and Flip instead.

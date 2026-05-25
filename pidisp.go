@@ -36,7 +36,8 @@ type Display interface {
 
 	// Flip makes the back buffer the active (displayed) buffer
 	// and prepares a fresh back buffer for the next frame.
-	Flip()
+	// Returns an error if the flip operation fails.
+	Flip() error
 
 	// Blit copies img to the display. Deprecated: use BackBuffer and Flip instead.
 	Blit(img *image.RGBA)

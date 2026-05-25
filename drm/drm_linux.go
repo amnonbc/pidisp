@@ -183,6 +183,15 @@ type drmModeCrtc struct {
 	Mode             drmModeModeInfo
 }
 
+// drmModePageFlip mirrors struct drm_mode_crtc_page_flip.
+type drmModePageFlip struct {
+	CrtcID   uint32
+	FbID     uint32
+	Flags    uint32
+	_        uint32
+	UserData uint64
+}
+
 // drmModeDestroyDumb mirrors struct drm_mode_destroy_dumb.
 type drmModeDestroyDumb struct {
 	Handle uint32
@@ -256,6 +265,9 @@ const (
 	drmModeRotate180 = uint64(1 << 2)
 )
 
+// drmModePageFlipAsync is the DRM_MODE_PAGE_FLIP_ASYNC flag (from drm_mode.h).
+const drmModePageFlipAsync = 2
+
 // ioctl request numbers, computed from struct sizes at init time.
 var (
 	ioctlSetClientCap         = drmIoW[drmSetClientCap](0x0D)
@@ -266,6 +278,7 @@ var (
 	ioctlModeMapDumb          = drmIoWR[drmModeMapDumb](0xB3)
 	ioctlModeAddFB2           = drmIoWR[drmModeFBCmd2](0xB8)
 	ioctlModeSetCRTC          = drmIoWR[drmModeCrtc](0xA2)
+	ioctlModePageFlip         = drmIoWR[drmModePageFlip](0xB0)
 	ioctlModeDestroyDumb      = drmIoWR[drmModeDestroyDumb](0xB4)
 	ioctlModeGetPlaneRes      = drmIoWR[drmModeGetPlaneRes](0xB5)
 	ioctlModeGetPlane         = drmIoWR[drmModeGetPlane](0xB6)
@@ -313,6 +326,7 @@ type Device struct {
 	crtcID  uint32
 	connID  uint32
 	mode    drmModeModeInfo
+	async   bool
 }
 
 // Width returns the display width in pixels.
@@ -506,7 +520,7 @@ func setPlaneRotation(fd uintptr, crtcID uint32, crtcIDs []uint32, rotate bool) 
 // Open opens the DRM device at dev, finds the first connected connector,
 // creates a 32 bpp dumb buffer in ABGR8888 format, registers it as a
 // framebuffer, sets the CRTC, and configures hardware rotation if requested.
-func Open(dev string, rotate bool) (*Device, error) {
+func Open(dev string, rotate, async bool) (*Device, error) {
 	f, err := os.OpenFile(dev, os.O_RDWR, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", dev, err)
@@ -702,6 +716,7 @@ func Open(dev string, rotate bool) (*Device, error) {
 		crtcID:  crtcID,
 		connID:  connID,
 		mode:    mode,
+		async:   async,
 	}, nil
 }
 
@@ -738,19 +753,36 @@ func (d *Device) BackBuffer() *image.RGBA {
 }
 
 // Flip makes the back buffer active (displayed) and swaps the buffers.
-func (d *Device) Flip() {
+// If async is enabled, uses page flip without vsync wait; if the previous flip
+// is still pending, an error is returned and the frame is not flipped.
+// Returns an error if the flip operation fails.
+func (d *Device) Flip() error {
 	next := 1 - d.active
-	crtc := drmModeCrtc{
-		CrtcID:           d.crtcID,
-		FbID:             d.buffers[next].fbID,
-		X:                0,
-		Y:                0,
-		GammaSize:        0,
-		ModeValid:        1,
-		Mode:             d.mode,
-		SetConnectorsPtr: uint64(uintptr(unsafe.Pointer(&d.connID))),
-		CountConnectors:  1,
+	var err error
+	if d.async {
+		req := drmModePageFlip{
+			CrtcID: d.crtcID,
+			FbID:   d.buffers[next].fbID,
+			Flags:  drmModePageFlipAsync,
+		}
+		err = drmIoctl(d.fd, ioctlModePageFlip, &req)
+	} else {
+		crtc := drmModeCrtc{
+			CrtcID:           d.crtcID,
+			FbID:             d.buffers[next].fbID,
+			X:                0,
+			Y:                0,
+			GammaSize:        0,
+			ModeValid:        1,
+			Mode:             d.mode,
+			SetConnectorsPtr: uint64(uintptr(unsafe.Pointer(&d.connID))),
+			CountConnectors:  1,
+		}
+		err = drmIoctl(d.fd, ioctlModeSetCRTC, &crtc)
 	}
-	drmIoctl(d.fd, ioctlModeSetCRTC, &crtc)
+	if err != nil {
+		return err
+	}
 	d.active = next
+	return nil
 }

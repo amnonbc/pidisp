@@ -25,6 +25,11 @@ type Options struct {
 	// Debug logs DRM device information (plane formats, connector details)
 	// before opening the display.
 	Debug bool
+
+	// AsyncFlip skips vsync synchronization on DRM, allowing Flip() to return
+	// immediately without waiting for the display controller. May produce
+	// screen tearing. Has no effect on fbdev backend.
+	AsyncFlip bool
 }
 
 // Open opens the best available display device and returns a [Display].
@@ -41,7 +46,7 @@ func Open(opts Options) (Display, error) {
 
 	if !opts.ForceFB {
 		for _, card := range []string{"/dev/dri/card0", "/dev/dri/card1", "/dev/dri/card2"} {
-			d, err := drm.Open(card, opts.Rotate)
+			d, err := drm.Open(card, opts.Rotate, opts.AsyncFlip)
 			if err == nil {
 				return d, nil
 			}
