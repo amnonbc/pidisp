@@ -1,3 +1,3 @@
 module github.com/amnonbc/pidisp
 
-go 1.26.3p
+go 1.26.3
